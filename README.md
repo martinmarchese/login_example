@@ -13,15 +13,16 @@ This guide provides step-by-step instructions for implementing Rodauth authentic
 
 1. [PostgreSQL Database Setup](#1-postgresql-database-setup)
 2. [Initial Rails Setup](#2-initial-rails-setup)
-3. [Install Rodauth](#3-install-rodauth)
-4. [Configure User Model](#4-configure-user-model)
-5. [Set Up Mailer Configuration](#5-set-up-mailer-configuration)
-6. [Configure Tailwind CSS](#6-configure-tailwind-css)
-7. [Customize Views](#7-customize-views)
-8. [Create Welcome Page](#8-create-welcome-page)
-9. [Add API Support](#9-add-api-support)
-10. [Test the Implementation](#10-test-the-implementation)
-11. [Optional Future Enhancements](#11-optional-future-enhancements)
+3. [Create Home Controller and Routes](#3-create-home-controller-and-routes)
+4. [Install Rodauth](#4-install-rodauth)
+5. [Configure User Model](#5-configure-user-model)
+6. [Set Up Mailer Configuration](#6-set-up-mailer-configuration)
+7. [Configure Tailwind CSS](#7-configure-tailwind-css)
+8. [Customize Views](#8-customize-views)
+9. [Create Welcome Page](#9-create-welcome-page)
+10. [Add API Support](#10-add-api-support)
+11. [Test the Implementation](#11-test-the-implementation)
+12. [Optional Future Enhancements](#12-optional-future-enhancements)
 
 ---
 
@@ -54,10 +55,10 @@ The database is configured with the following settings:
 
 ```bash
 # Create development and test databases
-rails db:create
+bin/rails db:create
 
 # Run any existing migrations
-rails db:migrate
+bin/rails db:migrate
 ```
 
 ### 1.4 Database Management Commands
@@ -87,8 +88,8 @@ docker volume rm login_example_postgres_data
 
 # Start fresh
 docker-compose up -d postgres
-rails db:create
-rails db:migrate
+bin/rails db:create
+bin/rails db:migrate
 ```
 
 ---
@@ -106,23 +107,74 @@ cd my_app
 
 # Start PostgreSQL container and create the database
 docker-compose up -d postgres
-rails db:create
+bin/rails db:create
 ```
 
 ### 2.2 Verify Installation
 
 ```bash
 # Start the Rails server
-rails server
+bin/rails server
 
 # Visit http://localhost:3000 to verify Rails is working
 ```
 
 ---
 
-## 3. Install Rodauth
+## 3. Create Home Controller and Routes
 
-### 3.1 Add Rodauth Gems
+Before installing Rodauth, we need to create a root path and basic home controller since Rodauth requires a defined root path.
+
+### 3.1 Create Home Controller
+
+```bash
+bin/rails generate controller Home index
+```
+
+### 3.2 Update Routes
+
+Edit `config/routes.rb`:
+
+```ruby
+Rails.application.routes.draw do
+  # Root path (required by Rodauth)
+  root "home#index"
+
+  # Health check
+  get "up" => "rails/health#show", as: :rails_health_check
+end
+```
+
+### 3.3 Create Basic Home Controller
+
+Edit `app/controllers/home_controller.rb`:
+
+```ruby
+class HomeController < ApplicationController
+  def index
+    # Basic landing page - will be enhanced after Rodauth installation
+  end
+end
+```
+
+### 3.4 Create Basic Home View
+
+Edit `app/views/home/index.html.erb`:
+
+```erb
+<div class="min-h-screen flex items-center justify-center bg-gray-50">
+  <div class="max-w-md w-full text-center">
+    <h1 class="text-4xl font-bold text-gray-900 mb-8">Welcome to MyApp</h1>
+    <p class="text-gray-600">Authentication will be added next!</p>
+  </div>
+</div>
+```
+
+---
+
+## 4. Install Rodauth
+
+### 4.1 Add Rodauth Gems
 
 Add to your `Gemfile`:
 
@@ -134,18 +186,18 @@ gem 'rodauth-rails', '~> 1.14'
 gem 'bcrypt', '~> 3.1.7'
 ```
 
-### 3.2 Install Gems
+### 4.2 Install Gems
 
 ```bash
 bundle install
 ```
 
-### 3.3 Run Rodauth Installer
+### 4.3 Run Rodauth Installer
 
 For basic web authentication (session-based):
 
 ```bash
-rails generate rodauth:install
+bin/rails generate rodauth:install
 ```
 
 **What this creates:**
@@ -158,10 +210,10 @@ rails generate rodauth:install
 - Migration file for Rodauth tables
 - Email templates in `app/views/rodauth_mailer/`
 
-### 3.4 Run Migrations
+### 4.4 Run Migrations
 
 ```bash
-rails db:migrate
+bin/rails db:migrate
 ```
 
 **Tables created:**
@@ -174,14 +226,14 @@ rails db:migrate
 
 ---
 
-## 4. Configure User Model
+## 5. Configure User Model
 
-### 4.1 Add Name Field to Accounts
+### 5.1 Add Name Field to Accounts
 
 Generate a migration to add the `name` field:
 
 ```bash
-rails generate migration AddNameToAccounts name:string
+bin/rails generate migration AddNameToAccounts name:string
 ```
 
 Edit the migration file to make name required:
@@ -198,10 +250,10 @@ end
 Run the migration:
 
 ```bash
-rails db:migrate
+bin/rails db:migrate
 ```
 
-### 4.2 Update Account Model
+### 5.2 Update Account Model
 
 Edit `app/models/account.rb`:
 
@@ -215,7 +267,7 @@ class Account < ApplicationRecord
 end
 ```
 
-### 4.3 Configure Rodauth to Handle Name
+### 5.3 Configure Rodauth to Handle Name
 
 Edit `app/misc/rodauth_main.rb` to add name handling:
 
@@ -258,9 +310,9 @@ end
 
 ---
 
-## 5. Set Up Mailer Configuration
+## 6. Set Up Mailer Configuration
 
-### 5.1 Configure Action Mailer for Development
+### 6.1 Configure Action Mailer for Development
 
 Edit `config/environments/development.rb`:
 
@@ -276,7 +328,7 @@ Rails.application.configure do
 end
 ```
 
-### 5.2 Add Letter Opener for Development
+### 6.2 Add Letter Opener for Development
 
 Add to your `Gemfile` (development group):
 
@@ -294,7 +346,7 @@ bundle install
 
 This will open emails in your browser during development instead of actually sending them.
 
-### 5.3 Configure for Production
+### 6.3 Configure for Production
 
 Edit `config/environments/production.rb`:
 
@@ -318,9 +370,9 @@ end
 
 ---
 
-## 6. Configure Tailwind CSS
+## 7. Configure Tailwind CSS
 
-### 6.1 Verify Tailwind Installation
+### 7.1 Verify Tailwind Installation
 
 Tailwind should be installed if you used `--css=tailwind` when creating the app. Verify by checking:
 
@@ -328,7 +380,7 @@ Tailwind should be installed if you used `--css=tailwind` when creating the app.
 cat config/tailwind.config.js
 ```
 
-### 6.2 Add Tailwind Forms Plugin (Optional but Recommended)
+### 7.2 Add Tailwind Forms Plugin (Optional but Recommended)
 
 ```bash
 yarn add @tailwindcss/forms
@@ -355,17 +407,17 @@ module.exports = {
 
 ---
 
-## 7. Customize Views
+## 8. Customize Views
 
-### 7.1 Generate Rodauth Views
+### 8.1 Generate Rodauth Views
 
 ```bash
-rails generate rodauth:views
+bin/rails generate rodauth:views
 ```
 
 This creates customizable views in `app/views/rodauth/`.
 
-### 7.2 Update Registration Form to Include Name
+### 8.2 Update Registration Form to Include Name
 
 Edit `app/views/rodauth/_login_field.html.erb` or create `app/views/rodauth/create_account.html.erb`:
 
@@ -449,7 +501,7 @@ Edit `app/views/rodauth/_login_field.html.erb` or create `app/views/rodauth/crea
 </div>
 ```
 
-### 7.3 Add Flash Messages
+### 8.3 Add Flash Messages
 
 Create `app/views/layouts/_flash.html.erb`:
 
@@ -498,15 +550,15 @@ Include it in `app/views/layouts/application.html.erb`:
 
 ---
 
-## 8. Create Welcome Page
+## 9. Create Welcome Page
 
-### 8.1 Create Dashboard Controller
+### 9.1 Create Dashboard Controller
 
 ```bash
-rails generate controller Dashboard index
+bin/rails generate controller Dashboard index
 ```
 
-### 8.2 Update Dashboard Controller
+### 9.2 Update Dashboard Controller
 
 Edit `app/controllers/dashboard_controller.rb`:
 
@@ -526,7 +578,7 @@ class DashboardController < ApplicationController
 end
 ```
 
-### 8.3 Create Dashboard View
+### 9.3 Create Dashboard View
 
 Edit `app/views/dashboard/index.html.erb`:
 
@@ -583,28 +635,26 @@ Edit `app/views/dashboard/index.html.erb`:
 </div>
 ```
 
-### 8.4 Update Routes
+### 9.4 Add Dashboard Route
 
-Edit `config/routes.rb`:
+Edit `config/routes.rb` to add the dashboard route:
 
 ```ruby
 Rails.application.routes.draw do
-  # Root path
+  # Root path (already defined)
   root "home#index"
-  
+
   # Dashboard (authenticated area)
   get "dashboard", to: "dashboard#index"
-  
+
   # Health check
   get "up" => "rails/health#show", as: :rails_health_check
 end
 ```
 
-### 8.5 Create Home Controller (Landing Page)
+### 9.5 Enhance Home Controller with Authentication
 
-```bash
-rails generate controller Home index
-```
+Now that Rodauth is installed, update the home controller to redirect authenticated users:
 
 Edit `app/controllers/home_controller.rb`:
 
@@ -623,18 +673,18 @@ Edit `app/views/home/index.html.erb`:
   <div class="max-w-md w-full text-center">
     <h1 class="text-4xl font-bold text-gray-900 mb-8">Welcome to MyApp</h1>
     <div class="space-x-4">
-      <%= link_to "Sign in", 
-          rodauth.login_path, 
+      <%= link_to "Sign in",
+          rodauth.login_path,
           class: "inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700" %>
-      <%= link_to "Sign up", 
-          rodauth.create_account_path, 
+      <%= link_to "Sign up",
+          rodauth.create_account_path,
           class: "inline-flex items-center px-6 py-3 border border-gray-300 text-base font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50" %>
     </div>
   </div>
 </div>
 ```
 
-### 8.6 Add Helper Methods to Application Controller
+### 9.6 Add Helper Methods to Application Controller
 
 Edit `app/controllers/application_controller.rb`:
 
@@ -656,9 +706,9 @@ end
 
 ---
 
-## 9. Add API Support
+## 10. Add API Support
 
-### 9.1 Enable JSON API Support
+### 10.1 Enable JSON API Support
 
 Edit `app/misc/rodauth_main.rb` to add JSON support:
 
@@ -680,7 +730,7 @@ class RodauthMain < Rodauth::Rails::Auth
 end
 ```
 
-### 9.2 Create API Controllers
+### 10.2 Create API Controllers
 
 Create `app/controllers/api/v1/base_controller.rb`:
 
@@ -706,7 +756,7 @@ module Api
 end
 ```
 
-### 9.3 Create API Routes
+### 10.3 Create API Routes
 
 Edit `config/routes.rb`:
 
@@ -729,7 +779,7 @@ Rails.application.routes.draw do
 end
 ```
 
-### 9.4 Create Users API Controller
+### 10.4 Create Users API Controller
 
 Create `app/controllers/api/v1/users_controller.rb`:
 
@@ -764,7 +814,7 @@ module Api
 end
 ```
 
-### 9.5 Test API Authentication
+### 10.5 Test API Authentication
 
 To authenticate via API, users need to:
 
@@ -780,15 +830,15 @@ To authenticate via API, users need to:
 
 ---
 
-## 10. Test the Implementation
+## 11. Test the Implementation
 
-### 10.1 Start the Rails Server
+### 11.1 Start the Rails Server
 
 ```bash
-rails server
+bin/rails server
 ```
 
-### 10.2 Test Web Authentication
+### 11.2 Test Web Authentication
 
 1. Visit `http://localhost:3000`
 2. Click "Sign up"
@@ -798,7 +848,7 @@ rails server
 6. You should be redirected to `/dashboard` with "Hello, [name]"
 7. Test sign out
 
-### 10.3 Test Password Reset
+### 11.3 Test Password Reset
 
 1. Go to login page
 2. Click "Forgot Password?"
@@ -807,7 +857,7 @@ rails server
 5. Follow link and reset password
 6. Log in with new password
 
-### 10.4 Test API with curl
+### 11.4 Test API with curl
 
 ```bash
 # Create account
@@ -834,9 +884,9 @@ curl -X DELETE http://localhost:3000/api/v1/users/[user_id] \
 
 ---
 
-## 11. Optional Future Enhancements
+## 12. Optional Future Enhancements
 
-### 11.1 Add JWT Support for Stateless API
+### 12.1 Add JWT Support for Stateless API
 
 Edit `Gemfile`:
 
@@ -848,20 +898,20 @@ Run:
 
 ```bash
 bundle install
-rails generate rodauth:install --jwt
+bin/rails generate rodauth:install --jwt
 ```
 
-### 11.2 Add Multi-Factor Authentication (TOTP)
+### 12.2 Add Multi-Factor Authentication (TOTP)
 
 ```bash
 # Add required gems
 bundle add rotp rqrcode
 
 # Generate migration
-rails generate rodauth:migration otp recovery_codes
+bin/rails generate rodauth:migration otp recovery_codes
 
 # Run migration
-rails db:migrate
+bin/rails db:migrate
 ```
 
 Edit `app/misc/rodauth_main.rb`:
@@ -883,10 +933,10 @@ end
 Generate views:
 
 ```bash
-rails generate rodauth:views otp recovery_codes
+bin/rails generate rodauth:views otp recovery_codes
 ```
 
-### 11.3 Add Social Login (Google, Facebook)
+### 12.3 Add Social Login (Google, Facebook)
 
 ```bash
 # Add gems
@@ -894,7 +944,7 @@ bundle add rodauth-omniauth
 bundle add omniauth-google-oauth2  # or omniauth-facebook
 
 # Generate migration for identities
-rails generate migration CreateAccountIdentities \
+bin/rails generate migration CreateAccountIdentities \
   account:references \
   provider:string \
   uid:string \
@@ -912,7 +962,7 @@ add_index :account_identities, [:provider, :uid], unique: true
 Run migration:
 
 ```bash
-rails db:migrate
+bin/rails db:migrate
 ```
 
 Edit `app/misc/rodauth_main.rb`:
@@ -934,17 +984,17 @@ class RodauthMain < Rodauth::Rails::Auth
 end
 ```
 
-### 11.4 Add Authorization with Pundit
+### 12.4 Add Authorization with Pundit
 
 ```bash
 # Add Pundit
 bundle add pundit
 
 # Generate installation
-rails generate pundit:install
+bin/rails generate pundit:install
 
 # Generate policy
-rails generate pundit:policy account
+bin/rails generate pundit:policy account
 ```
 
 Edit `app/controllers/application_controller.rb`:
@@ -957,10 +1007,10 @@ class ApplicationController < ActionController::Base
 end
 ```
 
-### 11.5 Add Role Field
+### 12.5 Add Role Field
 
 ```bash
-rails generate migration AddRoleToAccounts role:string
+bin/rails generate migration AddRoleToAccounts role:string
 ```
 
 Edit migration:
@@ -977,7 +1027,7 @@ end
 Run migration:
 
 ```bash
-rails db:migrate
+bin/rails db:migrate
 ```
 
 Update `app/models/account.rb`:
@@ -1028,8 +1078,8 @@ end
    - Check `config/initializers/sequel.rb` exists
 
 5. **Routes not found**
-   - Run `rails rodauth:routes` to see all Rodauth routes
-   - Rodauth routes don't appear in `rails routes`
+   - Run `bin/rails rodauth:routes` to see all Rodauth routes
+   - Rodauth routes don't appear in `bin/rails routes`
 
 ### Getting Help
 
