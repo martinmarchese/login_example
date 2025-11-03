@@ -1,0 +1,1056 @@
+# Rodauth Authentication Implementation Guide
+
+This guide provides step-by-step instructions for implementing Rodauth authentication in your Rails application with support for both web and API access.
+
+## Prerequisites
+
+- Ruby 3.x installed
+- Rails 7.x or 8.x
+- Docker and Docker Compose (for PostgreSQL database)
+- Node.js and Yarn (for asset compilation)
+
+## Table of Contents
+
+1. [PostgreSQL Database Setup](#1-postgresql-database-setup)
+2. [Initial Rails Setup](#2-initial-rails-setup)
+3. [Install Rodauth](#3-install-rodauth)
+4. [Configure User Model](#4-configure-user-model)
+5. [Set Up Mailer Configuration](#5-set-up-mailer-configuration)
+6. [Configure Tailwind CSS](#6-configure-tailwind-css)
+7. [Customize Views](#7-customize-views)
+8. [Create Welcome Page](#8-create-welcome-page)
+9. [Add API Support](#9-add-api-support)
+10. [Test the Implementation](#10-test-the-implementation)
+11. [Optional Future Enhancements](#11-optional-future-enhancements)
+
+---
+
+## 1. PostgreSQL Database Setup
+
+This project uses PostgreSQL running in a Docker container for local development.
+
+### 1.1 Start PostgreSQL Container
+
+The project includes a `docker-compose.yml` file for easy PostgreSQL setup:
+
+```bash
+# Start PostgreSQL container in the background
+docker-compose up -d postgres
+
+# Check container status
+docker-compose ps
+```
+
+### 1.2 Database Configuration
+
+The database is configured with the following settings:
+- **Host**: localhost
+- **Port**: 5432
+- **Database**: login_example_development
+- **Username**: postgres
+- **Password**: password
+
+### 1.3 Create and Setup Databases
+
+```bash
+# Create development and test databases
+rails db:create
+
+# Run any existing migrations
+rails db:migrate
+```
+
+### 1.4 Database Management Commands
+
+```bash
+# Stop PostgreSQL container
+docker-compose down
+
+# Start PostgreSQL container
+docker-compose up -d postgres
+
+# View PostgreSQL logs
+docker logs login_example_postgres
+
+# Connect to PostgreSQL directly (optional)
+docker exec -it login_example_postgres psql -U postgres -d login_example_development
+```
+
+### 1.5 Reset Database (if needed)
+
+If you need to completely reset the database:
+
+```bash
+# Stop containers and remove volumes
+docker-compose down
+docker volume rm login_example_postgres_data
+
+# Start fresh
+docker-compose up -d postgres
+rails db:create
+rails db:migrate
+```
+
+---
+
+## 2. Initial Rails Setup
+
+### 2.1 Create a New Rails Application
+
+```bash
+# Create new Rails app with PostgreSQL and Tailwind CSS
+rails new my_app --database=postgresql --css=tailwind
+
+# Navigate to the project directory
+cd my_app
+
+# Start PostgreSQL container and create the database
+docker-compose up -d postgres
+rails db:create
+```
+
+### 2.2 Verify Installation
+
+```bash
+# Start the Rails server
+rails server
+
+# Visit http://localhost:3000 to verify Rails is working
+```
+
+---
+
+## 3. Install Rodauth
+
+### 3.1 Add Rodauth Gems
+
+Add to your `Gemfile`:
+
+```ruby
+# Authentication
+gem 'rodauth-rails', '~> 1.14'
+
+# Required for password hashing
+gem 'bcrypt', '~> 3.1.7'
+```
+
+### 3.2 Install Gems
+
+```bash
+bundle install
+```
+
+### 3.3 Run Rodauth Installer
+
+For basic web authentication (session-based):
+
+```bash
+rails generate rodauth:install
+```
+
+**What this creates:**
+- `app/misc/rodauth_main.rb` - Main Rodauth configuration
+- `app/controllers/rodauth_controller.rb` - Controller for Rodauth views
+- `app/models/account.rb` - Account model
+- `app/mailers/rodauth_mailer.rb` - Mailer for authentication emails
+- `config/initializers/rodauth.rb` - Rodauth initialization
+- `config/initializers/sequel.rb` - Sequel configuration (uses Active Record connection)
+- Migration file for Rodauth tables
+- Email templates in `app/views/rodauth_mailer/`
+
+### 3.4 Run Migrations
+
+```bash
+rails db:migrate
+```
+
+**Tables created:**
+- `accounts` - User accounts (email, status)
+- `account_password_hashes` - Secure password storage
+- `account_password_reset_keys` - Password reset tokens
+- `account_verification_keys` - Email verification tokens
+- `account_login_change_keys` - Email change verification
+- `account_remember_keys` - "Remember me" functionality
+
+---
+
+## 4. Configure User Model
+
+### 4.1 Add Name Field to Accounts
+
+Generate a migration to add the `name` field:
+
+```bash
+rails generate migration AddNameToAccounts name:string
+```
+
+Edit the migration file to make name required:
+
+```ruby
+# db/migrate/XXXXXX_add_name_to_accounts.rb
+class AddNameToAccounts < ActiveRecord::Migration[7.0]
+  def change
+    add_column :accounts, :name, :string, null: false, default: ''
+  end
+end
+```
+
+Run the migration:
+
+```bash
+rails db:migrate
+```
+
+### 4.2 Update Account Model
+
+Edit `app/models/account.rb`:
+
+```ruby
+class Account < ApplicationRecord
+  include Rodauth::Rails.model
+  
+  # Validations
+  validates :name, presence: true, length: { minimum: 2, maximum: 100 }
+  validates :email, presence: true, uniqueness: true, format: { with: URI::MailTo::EMAIL_REGEXP }
+end
+```
+
+### 4.3 Configure Rodauth to Handle Name
+
+Edit `app/misc/rodauth_main.rb` to add name handling:
+
+```ruby
+class RodauthMain < Rodauth::Rails::Auth
+  configure do
+    # Core features
+    enable :login, :logout, :create_account, :verify_account, 
+           :reset_password, :change_password, :change_login, 
+           :verify_login_change, :remember, :close_account
+    
+    # Session key
+    prefix "/auth"
+    
+    # Account model
+    rails_account_model { Account }
+    
+    # Add name field handling
+    before_create_account do
+      throw_error_status(422, "name", "must be present") unless param_or_nil("name")
+    end
+    
+    after_create_account do
+      account = rails_account
+      account.update!(name: param("name"))
+    end
+    
+    # Redirect after login
+    login_redirect { "/dashboard" }
+    
+    # Email configuration
+    email_from "[email protected]"
+    email_subject_prefix "[MyApp] "
+    
+    # HMAC secret for secure tokens
+    hmac_secret Rails.application.credentials.secret_key_base
+  end
+end
+```
+
+---
+
+## 5. Set Up Mailer Configuration
+
+### 5.1 Configure Action Mailer for Development
+
+Edit `config/environments/development.rb`:
+
+```ruby
+Rails.application.configure do
+  # ... existing configuration ...
+  
+  # Action Mailer configuration
+  config.action_mailer.default_url_options = { host: 'localhost', port: 3000 }
+  config.action_mailer.delivery_method = :letter_opener
+  config.action_mailer.perform_deliveries = true
+  config.action_mailer.raise_delivery_errors = true
+end
+```
+
+### 5.2 Add Letter Opener for Development
+
+Add to your `Gemfile` (development group):
+
+```ruby
+group :development do
+  gem 'letter_opener', '~> 1.8'
+end
+```
+
+Install:
+
+```bash
+bundle install
+```
+
+This will open emails in your browser during development instead of actually sending them.
+
+### 5.3 Configure for Production
+
+Edit `config/environments/production.rb`:
+
+```ruby
+Rails.application.configure do
+  # ... existing configuration ...
+  
+  # Configure your email service (example with SMTP)
+  config.action_mailer.default_url_options = { host: 'yourdomain.com', protocol: 'https' }
+  config.action_mailer.delivery_method = :smtp
+  config.action_mailer.smtp_settings = {
+    address: ENV['SMTP_ADDRESS'],
+    port: ENV['SMTP_PORT'],
+    user_name: ENV['SMTP_USERNAME'],
+    password: ENV['SMTP_PASSWORD'],
+    authentication: :plain,
+    enable_starttls_auto: true
+  }
+end
+```
+
+---
+
+## 6. Configure Tailwind CSS
+
+### 6.1 Verify Tailwind Installation
+
+Tailwind should be installed if you used `--css=tailwind` when creating the app. Verify by checking:
+
+```bash
+cat config/tailwind.config.js
+```
+
+### 6.2 Add Tailwind Forms Plugin (Optional but Recommended)
+
+```bash
+yarn add @tailwindcss/forms
+```
+
+Update `config/tailwind.config.js`:
+
+```javascript
+module.exports = {
+  content: [
+    './public/*.html',
+    './app/helpers/**/*.rb',
+    './app/javascript/**/*.js',
+    './app/views/**/*.{erb,haml,html,slim}'
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [
+    require('@tailwindcss/forms'),
+  ],
+}
+```
+
+---
+
+## 7. Customize Views
+
+### 7.1 Generate Rodauth Views
+
+```bash
+rails generate rodauth:views
+```
+
+This creates customizable views in `app/views/rodauth/`.
+
+### 7.2 Update Registration Form to Include Name
+
+Edit `app/views/rodauth/_login_field.html.erb` or create `app/views/rodauth/create_account.html.erb`:
+
+```erb
+<div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-md w-full space-y-8">
+    <div>
+      <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+        Create your account
+      </h2>
+    </div>
+    
+    <form method="post" class="mt-8 space-y-6">
+      <%= csrf_tag %>
+      
+      <!-- Name field -->
+      <div>
+        <label for="name" class="block text-sm font-medium text-gray-700">Name</label>
+        <input 
+          type="text" 
+          name="name" 
+          id="name" 
+          value="<%= param_or_nil('name') %>"
+          required
+          autofocus
+          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+        >
+      </div>
+      
+      <!-- Email field -->
+      <div>
+        <label for="login" class="block text-sm font-medium text-gray-700">Email</label>
+        <input 
+          type="email" 
+          name="login" 
+          id="login" 
+          value="<%= param_or_nil('login') %>"
+          required
+          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+        >
+      </div>
+      
+      <!-- Password field -->
+      <div>
+        <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+        <input 
+          type="password" 
+          name="password" 
+          id="password" 
+          required
+          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+        >
+      </div>
+      
+      <!-- Password confirmation -->
+      <div>
+        <label for="password-confirm" class="block text-sm font-medium text-gray-700">Confirm Password</label>
+        <input 
+          type="password" 
+          name="password-confirm" 
+          id="password-confirm" 
+          required
+          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+        >
+      </div>
+      
+      <div>
+        <button 
+          type="submit" 
+          class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+        >
+          Sign up
+        </button>
+      </div>
+      
+      <div class="text-sm text-center">
+        Already have an account? <%= link_to "Sign in", rodauth.login_path, class: "font-medium text-indigo-600 hover:text-indigo-500" %>
+      </div>
+    </form>
+  </div>
+</div>
+```
+
+### 7.3 Add Flash Messages
+
+Create `app/views/layouts/_flash.html.erb`:
+
+```erb
+<% if flash.any? %>
+  <div class="fixed top-0 left-0 right-0 z-50">
+    <% flash.each do |type, message| %>
+      <div class="p-4 <%= type == 'notice' ? 'bg-green-100 border-green-500 text-green-900' : 'bg-red-100 border-red-500 text-red-900' %> border-l-4">
+        <div class="flex items-center">
+          <div class="flex-1">
+            <%= message %>
+          </div>
+          <button type="button" class="ml-4 text-sm font-medium" onclick="this.parentElement.parentElement.remove()">
+            Dismiss
+          </button>
+        </div>
+      </div>
+    <% end %>
+  </div>
+<% end %>
+```
+
+Include it in `app/views/layouts/application.html.erb`:
+
+```erb
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>MyApp</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+    <%= stylesheet_link_tag "tailwind", "inter-font", "data-turbo-track": "reload" %>
+    <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
+    <%= javascript_importmap_tags %>
+  </head>
+
+  <body>
+    <%= render "layouts/flash" %>
+    <main>
+      <%= yield %>
+    </main>
+  </body>
+</html>
+```
+
+---
+
+## 8. Create Welcome Page
+
+### 8.1 Create Dashboard Controller
+
+```bash
+rails generate controller Dashboard index
+```
+
+### 8.2 Update Dashboard Controller
+
+Edit `app/controllers/dashboard_controller.rb`:
+
+```ruby
+class DashboardController < ApplicationController
+  before_action :authenticate_user!
+  
+  def index
+    @account = current_account
+  end
+  
+  private
+  
+  def authenticate_user!
+    rodauth.require_authentication
+  end
+end
+```
+
+### 8.3 Create Dashboard View
+
+Edit `app/views/dashboard/index.html.erb`:
+
+```erb
+<div class="min-h-screen bg-gray-50">
+  <nav class="bg-white shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between h-16">
+        <div class="flex items-center">
+          <h1 class="text-2xl font-bold text-gray-900">MyApp</h1>
+        </div>
+        <div class="flex items-center space-x-4">
+          <span class="text-gray-700">Welcome, <%= current_account.name %></span>
+          <%= button_to "Sign out", 
+              rodauth.logout_path, 
+              method: :post,
+              data: { turbo: false },
+              class: "bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-md text-sm" %>
+        </div>
+      </div>
+    </div>
+  </nav>
+  
+  <div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+    <div class="bg-white overflow-hidden shadow rounded-lg">
+      <div class="px-4 py-5 sm:p-6">
+        <h1 class="text-3xl font-bold text-gray-900 mb-4">
+          Hello, <%= @account.name %>! 👋
+        </h1>
+        <p class="text-gray-600">
+          You're successfully signed in.
+        </p>
+        
+        <div class="mt-6 space-y-2">
+          <p class="text-sm text-gray-500">
+            <strong>Email:</strong> <%= @account.email %>
+          </p>
+          <p class="text-sm text-gray-500">
+            <strong>Account Status:</strong> <%= @account.status_id %>
+          </p>
+        </div>
+        
+        <div class="mt-8 flex space-x-4">
+          <%= link_to "Change Password", 
+              rodauth.change_password_path, 
+              class: "inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50" %>
+          <%= link_to "Change Email", 
+              rodauth.change_login_path, 
+              class: "inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50" %>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+### 8.4 Update Routes
+
+Edit `config/routes.rb`:
+
+```ruby
+Rails.application.routes.draw do
+  # Root path
+  root "home#index"
+  
+  # Dashboard (authenticated area)
+  get "dashboard", to: "dashboard#index"
+  
+  # Health check
+  get "up" => "rails/health#show", as: :rails_health_check
+end
+```
+
+### 8.5 Create Home Controller (Landing Page)
+
+```bash
+rails generate controller Home index
+```
+
+Edit `app/controllers/home_controller.rb`:
+
+```ruby
+class HomeController < ApplicationController
+  def index
+    redirect_to dashboard_path if rodauth.logged_in?
+  end
+end
+```
+
+Edit `app/views/home/index.html.erb`:
+
+```erb
+<div class="min-h-screen flex items-center justify-center bg-gray-50">
+  <div class="max-w-md w-full text-center">
+    <h1 class="text-4xl font-bold text-gray-900 mb-8">Welcome to MyApp</h1>
+    <div class="space-x-4">
+      <%= link_to "Sign in", 
+          rodauth.login_path, 
+          class: "inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700" %>
+      <%= link_to "Sign up", 
+          rodauth.create_account_path, 
+          class: "inline-flex items-center px-6 py-3 border border-gray-300 text-base font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50" %>
+    </div>
+  </div>
+</div>
+```
+
+### 8.6 Add Helper Methods to Application Controller
+
+Edit `app/controllers/application_controller.rb`:
+
+```ruby
+class ApplicationController < ActionController::Base
+  private
+  
+  def rodauth
+    Rodauth::Rails.rodauth
+  end
+  
+  def current_account
+    @current_account ||= rodauth.rails_account
+  end
+  
+  helper_method :rodauth, :current_account
+end
+```
+
+---
+
+## 9. Add API Support
+
+### 9.1 Enable JSON API Support
+
+Edit `app/misc/rodauth_main.rb` to add JSON support:
+
+```ruby
+class RodauthMain < Rodauth::Rails::Auth
+  configure do
+    # ... existing configuration ...
+    
+    # Enable JSON API support
+    enable :json
+    
+    # Allow JSON requests
+    only_json? false  # Allow both HTML and JSON
+    
+    # JSON response configuration
+    json_response_success_key :success
+    json_response_error_key :error
+  end
+end
+```
+
+### 9.2 Create API Controllers
+
+Create `app/controllers/api/v1/base_controller.rb`:
+
+```ruby
+module Api
+  module V1
+    class BaseController < ActionController::API
+      private
+      
+      def rodauth
+        Rodauth::Rails.rodauth
+      end
+      
+      def current_account
+        @current_account ||= rodauth.rails_account if rodauth.logged_in?
+      end
+      
+      def authenticate_api_user!
+        rodauth.require_authentication
+      end
+    end
+  end
+end
+```
+
+### 9.3 Create API Routes
+
+Edit `config/routes.rb`:
+
+```ruby
+Rails.application.routes.draw do
+  # Web routes
+  root "home#index"
+  get "dashboard", to: "dashboard#index"
+  
+  # API routes
+  namespace :api do
+    namespace :v1 do
+      # Add your API endpoints here
+      resources :users, only: [:show, :destroy]
+    end
+  end
+  
+  # Health check
+  get "up" => "rails/health#show", as: :rails_health_check
+end
+```
+
+### 9.4 Create Users API Controller
+
+Create `app/controllers/api/v1/users_controller.rb`:
+
+```ruby
+module Api
+  module V1
+    class UsersController < BaseController
+      before_action :authenticate_api_user!
+      
+      def show
+        render json: {
+          id: current_account.id,
+          name: current_account.name,
+          email: current_account.email,
+          status: current_account.status_id
+        }
+      end
+      
+      def destroy
+        if current_account.destroy
+          rodauth.logout
+          render json: { message: "Account deleted successfully" }, status: :ok
+        else
+          render json: { 
+            error: "Failed to delete account",
+            details: current_account.errors.full_messages 
+          }, status: :unprocessable_entity
+        end
+      end
+    end
+  end
+end
+```
+
+### 9.5 Test API Authentication
+
+To authenticate via API, users need to:
+
+1. **Login** - POST to `/auth/login` with JSON:
+```json
+{
+  "login": "[email protected]",
+  "password": "password123"
+}
+```
+
+2. **Subsequent requests** - Include session cookie or use JWT (see JWT setup below)
+
+---
+
+## 10. Test the Implementation
+
+### 10.1 Start the Rails Server
+
+```bash
+rails server
+```
+
+### 10.2 Test Web Authentication
+
+1. Visit `http://localhost:3000`
+2. Click "Sign up"
+3. Fill in name, email, password
+4. Check your email (letter_opener will open in browser)
+5. Click verification link
+6. You should be redirected to `/dashboard` with "Hello, [name]"
+7. Test sign out
+
+### 10.3 Test Password Reset
+
+1. Go to login page
+2. Click "Forgot Password?"
+3. Enter your email
+4. Check email for reset link
+5. Follow link and reset password
+6. Log in with new password
+
+### 10.4 Test API with curl
+
+```bash
+# Create account
+curl -X POST http://localhost:3000/auth/create-account \
+  -H "Content-Type: application/json" \
+  -d '{"name":"API User","login":"[email protected]","password":"password123","password-confirm":"password123"}'
+
+# Login (save cookies)
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -c cookies.txt \
+  -d '{"login":"[email protected]","password":"password123"}'
+
+# Get current user (using saved cookies)
+curl -X GET http://localhost:3000/api/v1/users/show \
+  -H "Content-Type: application/json" \
+  -b cookies.txt
+
+# Delete user
+curl -X DELETE http://localhost:3000/api/v1/users/[user_id] \
+  -H "Content-Type: application/json" \
+  -b cookies.txt
+```
+
+---
+
+## 11. Optional Future Enhancements
+
+### 11.1 Add JWT Support for Stateless API
+
+Edit `Gemfile`:
+
+```ruby
+gem 'jwt', '~> 2.7'
+```
+
+Run:
+
+```bash
+bundle install
+rails generate rodauth:install --jwt
+```
+
+### 11.2 Add Multi-Factor Authentication (TOTP)
+
+```bash
+# Add required gems
+bundle add rotp rqrcode
+
+# Generate migration
+rails generate rodauth:migration otp recovery_codes
+
+# Run migration
+rails db:migrate
+```
+
+Edit `app/misc/rodauth_main.rb`:
+
+```ruby
+class RodauthMain < Rodauth::Rails::Auth
+  configure do
+    # ... existing configuration ...
+    
+    # Enable MFA features
+    enable :otp, :recovery_codes
+    
+    # Auto-generate recovery codes after OTP setup
+    auto_add_recovery_codes? true
+  end
+end
+```
+
+Generate views:
+
+```bash
+rails generate rodauth:views otp recovery_codes
+```
+
+### 11.3 Add Social Login (Google, Facebook)
+
+```bash
+# Add gems
+bundle add rodauth-omniauth
+bundle add omniauth-google-oauth2  # or omniauth-facebook
+
+# Generate migration for identities
+rails generate migration CreateAccountIdentities \
+  account:references \
+  provider:string \
+  uid:string \
+  info:jsonb
+
+# Add unique index
+```
+
+Edit migration to add:
+
+```ruby
+add_index :account_identities, [:provider, :uid], unique: true
+```
+
+Run migration:
+
+```bash
+rails db:migrate
+```
+
+Edit `app/misc/rodauth_main.rb`:
+
+```ruby
+class RodauthMain < Rodauth::Rails::Auth
+  configure do
+    # ... existing configuration ...
+    
+    # Enable OmniAuth
+    enable :omniauth
+    
+    # Configure provider
+    omniauth_provider :google_oauth2,
+      ENV['GOOGLE_CLIENT_ID'],
+      ENV['GOOGLE_CLIENT_SECRET'],
+      scope: 'email,profile'
+  end
+end
+```
+
+### 11.4 Add Authorization with Pundit
+
+```bash
+# Add Pundit
+bundle add pundit
+
+# Generate installation
+rails generate pundit:install
+
+# Generate policy
+rails generate pundit:policy account
+```
+
+Edit `app/controllers/application_controller.rb`:
+
+```ruby
+class ApplicationController < ActionController::Base
+  include Pundit::Authorization
+  
+  # ... existing code ...
+end
+```
+
+### 11.5 Add Role Field
+
+```bash
+rails generate migration AddRoleToAccounts role:string
+```
+
+Edit migration:
+
+```ruby
+class AddRoleToAccounts < ActiveRecord::Migration[7.0]
+  def change
+    add_column :accounts, :role, :string, default: 'user', null: false
+    add_index :accounts, :role
+  end
+end
+```
+
+Run migration:
+
+```bash
+rails db:migrate
+```
+
+Update `app/models/account.rb`:
+
+```ruby
+class Account < ApplicationRecord
+  include Rodauth::Rails.model
+  
+  # Role constants
+  ROLES = %w[user admin].freeze
+  
+  # Validations
+  validates :name, presence: true, length: { minimum: 2, maximum: 100 }
+  validates :email, presence: true, uniqueness: true, format: { with: URI::MailTo::EMAIL_REGEXP }
+  validates :role, inclusion: { in: ROLES }
+  
+  # Role helpers
+  def admin?
+    role == 'admin'
+  end
+  
+  def user?
+    role == 'user'
+  end
+end
+```
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"Unintialized constant Rodauth"**
+   - Restart Rails server
+   - Run `spring stop` if using Spring
+
+2. **Email not sending in development**
+   - Check `letter_opener` gem is installed
+   - Verify Action Mailer configuration in `config/environments/development.rb`
+
+3. **CSRF token errors**
+   - Ensure `<%= csrf_meta_tags %>` is in `application.html.erb`
+   - For API, disable CSRF or use proper token handling
+
+4. **Sequel connection errors**
+   - Rodauth-rails should configure Sequel automatically
+   - Check `config/initializers/sequel.rb` exists
+
+5. **Routes not found**
+   - Run `rails rodauth:routes` to see all Rodauth routes
+   - Rodauth routes don't appear in `rails routes`
+
+### Getting Help
+
+- **Rodauth documentation**: https://rodauth.jeremyevans.net/
+- **Rodauth-Rails documentation**: https://github.com/janko/rodauth-rails
+- **GitHub Issues**: https://github.com/janko/rodauth-rails/issues
+- **Discussion**: https://github.com/janko/rodauth-rails/discussions
+
+---
+
+## Summary
+
+You now have a complete authentication system with:
+
+✅ User registration with name and email
+✅ Email verification
+✅ Password reset flow  
+✅ Login/logout functionality
+✅ Web interface with Tailwind CSS
+✅ API endpoints with session-based auth
+✅ User deletion via API
+✅ Dashboard showing personalized welcome
+
+Future enhancements (MFA, social login, roles) can be added incrementally using the patterns shown in section 10.
