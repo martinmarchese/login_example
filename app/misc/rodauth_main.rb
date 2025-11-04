@@ -29,7 +29,10 @@ class RodauthMain < Rodauth::Rails::Auth
     # hmac_secret "fa082b599c4212c49b502ce5031096b7c96a04cd72e15c3b7a9181c99ea8502368202339c4f14c129dcbf1f6247ee476aee80232672ad6031916538729bb97c9"
 
     # Use path prefix for all routes.
-    # prefix "/auth"
+    prefix "/auth"
+
+    # Account model
+    rails_account_model { Account }
 
     # Specify the controller used for view rendering, CSRF, and callbacks.
     rails_controller { RodauthController }
@@ -69,6 +72,11 @@ class RodauthMain < Rodauth::Rails::Auth
       # queue email delivery on the mailer after the transaction commits
       db.after_commit { email.deliver_later }
     end
+
+    # Not sure if I need this, so not gonna happen, sorry Claudio :(
+    # Email configuration
+    # email_from "[email protected]"
+    # email_subject_prefix "[MyApp] "
 
     # ==> Flash
     # Match flash keys with ones already used in the Rails app.
@@ -120,10 +128,20 @@ class RodauthMain < Rodauth::Rails::Auth
     #   throw_error_status(422, "name", "must be present") if param("name").empty?
     # end
 
+    # Add name field handling
+    before_create_account do
+      throw_error_status(422, "name", "must be present") unless param_or_nil("name")
+    end
+
     # Perform additional actions after the account is created.
     # after_create_account do
     #   Profile.create!(account_id: account_id, name: param("name"))
     # end
+
+    after_create_account do
+      account = rails_account
+      account.update!(name: param("name"))
+    end
 
     # Do additional cleanup after the account is closed.
     # after_close_account do
@@ -135,10 +153,15 @@ class RodauthMain < Rodauth::Rails::Auth
     logout_redirect "/"
 
     # Redirect to wherever login redirects to after account verification.
+    # Redirect after login
+    login_redirect { "/dashboard" }
     verify_account_redirect { login_redirect }
 
     # Redirect to login page after password reset.
     reset_password_redirect { login_path }
+
+    # HMAC secret for secure tokens
+    hmac_secret Rails.application.credentials.secret_key_base
 
     # ==> Deadlines
     # Change default deadlines for some actions.
