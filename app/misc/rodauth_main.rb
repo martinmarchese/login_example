@@ -133,14 +133,13 @@ class RodauthMain < Rodauth::Rails::Auth
       throw_error_status(422, "name", "must be present") unless param_or_nil("name")
     end
 
-    # Perform additional actions after the account is created.
-    # after_create_account do
-    #   Profile.create!(account_id: account_id, name: param("name"))
-    # end
-
-    after_create_account do
-      account = rails_account
-      account.update!(name: param("name"))
+    # Try overriding methods that are actually called
+    auth_class_eval do
+      def new_account(login)
+        account_hash = super(login)
+        account_hash[:name] = param("name")
+        account_hash
+      end
     end
 
     # Do additional cleanup after the account is closed.
