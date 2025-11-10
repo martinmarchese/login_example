@@ -49,6 +49,9 @@ class RodauthMain < Rodauth::Rails::Auth
     # Set password when creating account instead of when verifying.
     verify_account_set_password? false
 
+    # Auto-verify accounts on GET request when password is already set
+    verify_account_autologin? true
+
     # Change some default param keys.
     login_param "email"
     login_confirm_param "email-confirm"
