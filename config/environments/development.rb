@@ -37,7 +37,23 @@ Rails.application.configure do
   # Action Mailer configuration
   # Set localhost to be used by links generated in mailer templates.
   config.action_mailer.default_url_options = { host: "localhost", port: 3000 }
-  config.action_mailer.delivery_method = :letter_opener
+
+  ## SMTP settings for mailer
+  config.action_mailer.delivery_method = :smtp
+  config.action_mailer.smtp_settings = {
+    address: "smtp.gmail.com",
+    port: 587,
+    domain: "gmail.com",
+    user_name: "momentum2k26@gmail.com",
+    password: "hsau kxhv hjvh skrs",
+    authentication: "plain",
+    enable_starttls: true,
+    open_timeout: 15,
+    read_timeout: 15,
+    openssl_verify_mode: "none"
+  }
+
+
   config.action_mailer.perform_deliveries = true
   # DO care if the mailer can't send!
   config.action_mailer.raise_delivery_errors = true
