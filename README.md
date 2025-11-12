@@ -856,11 +856,10 @@ end
 To authenticate via API, users need to:
 
 1. **Login** - POST to `/auth/login` with JSON:
-```json
-{
-  "login": "[email protected]",
-  "password": "password123"
-}
+```shell
+curl -X POST http://localhost:3000/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{"email":"awesomeemail@mail.com","password":"test1234"}'
 ```
 
 2. **Subsequent requests** - Include session cookie or use JWT (see JWT setup below)
