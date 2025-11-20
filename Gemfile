@@ -41,6 +41,10 @@ gem "thruster", require: false
 
 # Authentication
 gem "rodauth-rails", "~> 2.1", ">= 2.1.1"
+gem "omniauth"
+gem "omniauth-google-oauth2"
+gem "omniauth-rails_csrf_protection"
+gem "rodauth-omniauth"
 
 group :development, :test do
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
@@ -54,6 +58,9 @@ group :development, :test do
 
   # Preview email on development, rather than sending it
   gem "letter_opener", "~> 1.10"
+
+  # Load environment variables from .env files
+  gem "dotenv-rails"
 end
 
 group :development do

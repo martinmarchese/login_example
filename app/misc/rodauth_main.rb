@@ -2,11 +2,17 @@ require "sequel/core"
 
 class RodauthMain < Rodauth::Rails::Auth
   configure do
+
+    def account_id
+      Rails.logger.info "DEBUG: account_id called. Session method returns: #{session.inspect}"
+      super
+    end
+
     # List of authentication features that are loaded.
-    enable :create_account, :verify_account, :verify_account_grace_period,
-      :login, :logout, :remember,
+    enable :create_account, :verify_account,
+      :login, :logout,
       :reset_password, :change_password, :change_login, :verify_login_change,
-      :close_account
+      :close_account, :omniauth
 
     # See the Rodauth documentation for the list of available config options:
     # http://rodauth.jeremyevans.net/documentation.html
@@ -117,13 +123,13 @@ class RodauthMain < Rodauth::Rails::Auth
 
     # ==> Remember Feature
     # Remember all logged in users.
-    after_login { remember_login }
+    # after_login { remember_login }
 
     # Or only remember users that have ticked a "Remember Me" checkbox on login.
     # after_login { remember_login if param_or_nil("remember") }
 
     # Extend user's remember period when remembered via a cookie
-    extend_remember_deadline? true
+    # extend_remember_deadline? true
 
     # ==> Hooks
     # Validate custom fields in the create account form.
@@ -164,6 +170,60 @@ class RodauthMain < Rodauth::Rails::Auth
 
     # HMAC secret for secure tokens
     hmac_secret Rails.application.credentials.secret_key_base
+
+    # OmniAuth
+    omniauth_provider :google_oauth2,
+      ENV["GOOGLE_CLIENT_ID"],
+      ENV["GOOGLE_CLIENT_SECRET"],
+      scope: "email, profile",
+      prompt: "select_account"
+
+    before_omniauth_callback_route do
+      auth = omniauth_auth
+      Rails.logger.info "OmniAuth Auth: #{auth.inspect}"
+      Rails.logger.info "Session (Rails): #{session.inspect}"
+      Rails.logger.info "Session (Rails): #{session.inspect}"
+
+      if auth.nil? || auth["info"].nil?
+        set_redirect_error_flash "Authentication failed: No auth data received from Google."
+        redirect login_path
+      end
+
+      email = auth["info"]["email"]
+      name = auth["info"]["name"]
+
+      unless email
+        set_redirect_error_flash "Authentication failed: No email provided by Google."
+        redirect login_path
+      end
+
+      account = Account.where(email: email).first
+
+      unless account
+        account = Account.new(email: email, name: name || "Unknown")
+        account.status = 1 # Verified
+
+        unless account.save
+          Rails.logger.error "Account save failed: #{account.errors.full_messages}"
+          set_redirect_error_flash "Could not create account from Google."
+          redirect login_path
+        end
+      end
+
+      Rails.logger.info "Logging in account: #{account.id}"
+      
+      # Manually set the account for Rodauth to use
+      self.instance_variable_set(:@account, account)
+      
+      begin
+        login("google_oauth2")
+      rescue => e
+        Rails.logger.error "Login error: #{e.message}"
+        Rails.logger.error e.backtrace.join("\n")
+        raise e
+      end
+      redirect login_redirect
+    end
 
     # ==> Deadlines
     # Change default deadlines for some actions.
